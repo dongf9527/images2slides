@@ -4,6 +4,7 @@ import hashlib
 import logging
 import os
 import tempfile
+from datetime import timedelta
 from typing import Any, Protocol
 
 from PIL import Image
@@ -11,6 +12,8 @@ from PIL import Image
 from .models import BBoxPx, Layout
 
 logger = logging.getLogger(__name__)
+
+ALLOW_PUBLIC_UPLOAD_ENV_VAR = "IMAGES2SLIDES_ALLOW_PUBLIC_UPLOAD"
 
 
 class UploadError(Exception):
@@ -65,7 +68,9 @@ class GCSUploader:
             object_name: Name/key for the uploaded object.
 
         Returns:
-            Public URL of the uploaded image.
+            A URL Google Slides can fetch: a V4 signed URL by default (the
+            object stays private), or a public URL only when
+            IMAGES2SLIDES_ALLOW_PUBLIC_UPLOAD is explicitly enabled.
 
         Raises:
             UploadError: If upload fails.
@@ -74,18 +79,45 @@ class GCSUploader:
             bucket = self._get_bucket()
             blob = bucket.blob(object_name)
             blob.upload_from_filename(local_path, content_type="image/png")
+            return self._accessible_url(blob, local_path)
+        except UploadError:
+            raise
+        except Exception as e:
+            raise UploadError(f"Failed to upload {local_path}: {e}") from e
 
-            # Try to make public, but skip if bucket uses uniform access
-            # (bucket must be configured for public access at bucket level)
+    def _accessible_url(self, blob: Any, local_path: str) -> str:
+        """Return a URL Google Slides can fetch for an uploaded blob.
+
+        Defaults to a 1-hour V4 signed URL so the bucket stays private.
+        Slides only fetches the URL once at creation time, so the short
+        expiry is enough. Public URLs are opt-in via environment variable.
+        """
+        allow_public = os.environ.get(ALLOW_PUBLIC_UPLOAD_ENV_VAR, "").strip().lower()
+        if allow_public in ("1", "true", "yes"):
+            logger.warning(
+                "%s is enabled; serving %s as a PUBLIC object",
+                ALLOW_PUBLIC_UPLOAD_ENV_VAR,
+                local_path,
+            )
             try:
                 blob.make_public()
             except Exception:
                 # Uniform bucket-level access enabled - assume bucket is already public
                 logger.debug("Could not set object ACL (uniform access?), using public URL anyway")
+            public_url: str = blob.public_url
+            return public_url
 
-            return blob.public_url
+        try:
+            signed_url: str = blob.generate_signed_url(
+                version="v4", expiration=timedelta(hours=1), method="GET"
+            )
+            return signed_url
         except Exception as e:
-            raise UploadError(f"Failed to upload {local_path}: {e}") from e
+            raise UploadError(
+                f"Uploaded {local_path} but could not generate a signed URL: {e}. "
+                "Signed URLs require a service account (or IAM signing permission); "
+                f"set {ALLOW_PUBLIC_UPLOAD_ENV_VAR}=1 to opt back into public URLs."
+            ) from e
 
 
 def crop_region_png(infographic_path: str, bbox: BBoxPx, out_path: str) -> None:

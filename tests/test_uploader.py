@@ -2,12 +2,15 @@
 
 import os
 import tempfile
+import types
 
 import pytest
 from PIL import Image
 
 from images2slides.models import BBoxPx, ImageDimensions, Layout, Region
 from images2slides.uploader import (
+    ALLOW_PUBLIC_UPLOAD_ENV_VAR,
+    GCSUploader,
     UploadError,
     crop_and_upload_regions,
     crop_region_png,
@@ -221,9 +224,7 @@ class TestCropAndUploadRegions:
         assert "red_corner" in result
         assert "no_crop" in result
 
-    def test_returns_urls(
-        self, sample_image_path: str, layout_with_image_regions: Layout
-    ) -> None:
+    def test_returns_urls(self, sample_image_path: str, layout_with_image_regions: Layout) -> None:
         """Test that URLs are returned correctly."""
 
         class MockUploader:
@@ -267,3 +268,71 @@ class TestCropAndUploadRegions:
             assert name.endswith(".png")
             parts = name[:-4].split("_")  # Remove .png and split
             assert len(parts) >= 3  # pre, id, hash
+
+
+class _FakeSignedBlob:
+    """Minimal blob double for testing URL selection logic."""
+
+    def __init__(self, sign_ok: bool) -> None:
+        self.sign_ok = sign_ok
+        self.made_public = False
+
+    def upload_from_filename(self, local_path: str, content_type: str) -> None:
+        pass
+
+    def generate_signed_url(self, version: str, expiration: object, method: str) -> str:
+        if not self.sign_ok:
+            raise RuntimeError("no signing credentials")
+        return "https://signed.example.com/blob"
+
+    def make_public(self) -> None:
+        self.made_public = True
+
+    @property
+    def public_url(self) -> str:
+        return "https://storage.googleapis.com/test-bucket/blob"
+
+
+class TestGCSUploaderAccessibleUrl:
+    """Tests for signed-URL behavior of GCSUploader."""
+
+    def _uploader_with_bucket(self, blob: _FakeSignedBlob) -> GCSUploader:
+        uploader = GCSUploader("test-bucket")
+        uploader._bucket = types.SimpleNamespace(blob=lambda object_name: blob)
+        return uploader
+
+    def test_upload_png_returns_signed_url(self, sample_image_path: str) -> None:
+        """Test that uploads return a signed URL and skip make_public."""
+        blob = _FakeSignedBlob(sign_ok=True)
+        uploader = self._uploader_with_bucket(blob)
+
+        url = uploader.upload_png(sample_image_path, "obj.png")
+
+        assert url == "https://signed.example.com/blob"
+        assert blob.made_public is False
+
+    def test_signing_failure_raises_by_default(
+        self, sample_image_path: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that signing failures raise UploadError when public upload is not opted in."""
+        monkeypatch.delenv(ALLOW_PUBLIC_UPLOAD_ENV_VAR, raising=False)
+        blob = _FakeSignedBlob(sign_ok=False)
+        uploader = self._uploader_with_bucket(blob)
+
+        with pytest.raises(UploadError, match="signed URL"):
+            uploader.upload_png(sample_image_path, "obj.png")
+
+        assert blob.made_public is False
+
+    def test_signing_failure_falls_back_when_opted_in(
+        self, sample_image_path: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test explicit public-upload opt-in falls back to make_public."""
+        monkeypatch.setenv(ALLOW_PUBLIC_UPLOAD_ENV_VAR, "1")
+        blob = _FakeSignedBlob(sign_ok=False)
+        uploader = self._uploader_with_bucket(blob)
+
+        url = uploader.upload_png(sample_image_path, "obj.png")
+
+        assert url == "https://storage.googleapis.com/test-bucket/blob"
+        assert blob.made_public is True
