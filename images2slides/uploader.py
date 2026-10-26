@@ -150,9 +150,11 @@ def crop_and_upload_regions(
         temp_dir: Optional temp directory for cropped files.
 
     Returns:
-        Dict mapping region ID to public URL.
+        Dict mapping region ID to public URL. Regions that fail to crop or
+        upload are omitted from the dict (a warning is logged listing them).
     """
     cropped_urls: dict[str, str] = {}
+    failed_region_ids: list[str] = []
     use_temp_dir = temp_dir or tempfile.mkdtemp(prefix="slides_crop_")
 
     for region in layout.regions:
@@ -172,8 +174,16 @@ def crop_and_upload_regions(
             cropped_urls[region.id] = url
             logger.info(f"Uploaded cropped region {region.id} to {url}")
         except UploadError as e:
-            logger.error(f"Failed to process region {region.id}: {e}")
-            raise
+            # Skip the failed region and keep going: aborting on one transient
+            # upload error would waste the whole (expensive) VLM extraction step.
+            failed_region_ids.append(region.id)
+            logger.error(f"Failed to process region {region.id}, skipping: {e}")
+
+    if failed_region_ids:
+        logger.warning(
+            f"{len(failed_region_ids)} image region(s) skipped due to "
+            f"crop/upload failures: {failed_region_ids}"
+        )
 
     return cropped_urls
 

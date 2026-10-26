@@ -198,6 +198,29 @@ class TestCropAndUploadRegions:
         assert "no_crop" in result
         assert "text_region" not in result
 
+    def test_skips_failed_region_and_continues(
+        self, sample_image_path: str, layout_with_image_regions: Layout
+    ) -> None:
+        """Test that a failing region is skipped while remaining regions still upload."""
+
+        class PartialFailureUploader:
+            def upload_png(self, local_path: str, object_name: str) -> str:
+                if "green_box" in object_name:
+                    raise UploadError("simulated upload failure")
+                return f"https://mock.com/{object_name}"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = crop_and_upload_regions(
+                infographic_path=sample_image_path,
+                layout=layout_with_image_regions,
+                uploader=PartialFailureUploader(),
+                temp_dir=temp_dir,
+            )
+
+        assert "green_box" not in result
+        assert "red_corner" in result
+        assert "no_crop" in result
+
     def test_returns_urls(
         self, sample_image_path: str, layout_with_image_regions: Layout
     ) -> None:

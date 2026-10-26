@@ -664,6 +664,14 @@ def convert(
             except UploadError as e:
                 click.echo(f"Image upload error: {e}", err=True)
                 sys.exit(EXIT_API_ERROR)
+
+            uploaded_count = sum(len(urls) for urls in cropped_urls_per_image)
+            skipped_count = total_image_regions - uploaded_count
+            if skipped_count > 0:
+                click.echo(
+                    f"\nWarning: {skipped_count} of {total_image_regions} image region(s) "
+                    "could not be cropped/uploaded and will be omitted from the slides."
+                )
         else:
             click.echo(
                 f"\nNote: {total_image_regions} image region(s) detected but --gcs-bucket not provided."
