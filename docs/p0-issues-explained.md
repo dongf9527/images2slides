@@ -90,6 +90,18 @@ url = blob.generate_signed_url(
 
 OAuth 鉴权成功后，凭证（含 `refresh_token`）以**明文 JSON** 写入**当前工作目录**下的 `token.json`。CWD 是最不可控的位置：在哪个目录启动命令，凭证就落在哪。
 
+### 先澄清：原仓库内容已验证无泄露
+
+为避免误读，2026-10-26 对原仓库 `kumanday/images2slides` 做了内容层面的全量核查。**P0-3 指的是上述运行时行为缺陷，原仓库本身没有提交过任何明文凭证**：
+
+| 检查项 | 方法 | 结果 |
+|--------|------|------|
+| 凭证类文件是否曾被提交 | `git log --all -- token.json "*.pem" "*.p12" "*credential*"`（覆盖全部 7 个分支的完整历史） | 从未存在 |
+| 真实凭证值特征扫描 | 全分支 × 全历史提交逐个 `git grep`：`1//`（Google refresh_token）、`ya29.`（access_token）、`AIza`（Google API key）、`GOCSPX-`（OAuth client secret）、`sk-ant-api` / `sk-proj-`（LLM key）、`BEGIN PRIVATE KEY`（服务账号私钥） | 唯一命中 `docs/configuration.md:132`，为文档示例中作者**主动脱敏**的占位符 `[REDACTED:ssh_private_key]`（同行 `client_secret: "xxx"` 亦为占位） |
+| `.gitignore` 白名单放行的 JSON | `examples/sample_layout.json`、`tests/fixtures/sample_layout.json` | 均为版式测试夹具，非凭证 |
+
+同时可以确认，原作者的仓库卫生本身是到位的：`.gitignore` 覆盖了 `token.json`、`*.json`（白名单放行 examples 与测试夹具）、`secrets/`、`.env`，文档还引导用户把密钥文件放在 `secrets/` 目录。因此 P0-3 的定性是**工具运行时的凭证落盘行为缺陷**，而非仓库历史泄露——修复目标是改运行时默认行为（路径 + 权限），不涉及任何历史数据清理或凭证吊销。
+
 ### 代码证据
 
 - `images2slides/auth.py:14`：`def get_slides_service_oauth(client_secret_path: str, token_path: str = "token.json")` —— 默认值是相对路径；
