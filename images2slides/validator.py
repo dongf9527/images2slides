@@ -92,6 +92,16 @@ def validate_layout(data: dict) -> Layout:
 
     regions = tuple(_validate_region(r, i) for i, r in enumerate(regions_data))
 
+    # Enforce unique region ids: they become Slides API objectIds and upload map keys.
+    # Duplicates would collide (whole batchUpdate rejected, or wrong image placed).
+    seen_ids: set[str] = set()
+    for region in regions:
+        if region.id in seen_ids:
+            raise LayoutValidationError(
+                f"Duplicate region id: '{region.id}'. Region ids must be unique."
+            )
+        seen_ids.add(region.id)
+
     return Layout(image_px=image_px, regions=regions)
 
 

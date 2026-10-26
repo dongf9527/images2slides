@@ -61,6 +61,30 @@ class TestValidateLayout:
         with pytest.raises(LayoutValidationError, match="must be 'text' or 'image'"):
             validate_layout(data)
 
+    def test_duplicate_region_ids_rejected(self) -> None:
+        """Test error when two regions share the same id."""
+        data = {
+            "image_px": {"width": 1600, "height": 900},
+            "regions": [
+                {"id": "dup", "type": "text", "bbox_px": {"x": 0, "y": 0, "w": 100, "h": 50}},
+                {"id": "dup", "type": "image", "bbox_px": {"x": 0, "y": 60, "w": 100, "h": 50}},
+            ],
+        }
+        with pytest.raises(LayoutValidationError, match="Duplicate region id: 'dup'"):
+            validate_layout(data)
+
+    def test_distinct_region_ids_accepted(self) -> None:
+        """Test that unique ids pass the uniqueness check."""
+        data = {
+            "image_px": {"width": 1600, "height": 900},
+            "regions": [
+                {"id": "a", "type": "text", "bbox_px": {"x": 0, "y": 0, "w": 100, "h": 50}},
+                {"id": "b", "type": "image", "bbox_px": {"x": 0, "y": 60, "w": 100, "h": 50}},
+            ],
+        }
+        layout = validate_layout(data)
+        assert len(layout.regions) == 2
+
     def test_missing_bbox_field(self) -> None:
         """Test error when bbox field is missing."""
         data = {
