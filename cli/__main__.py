@@ -111,6 +111,12 @@ def cli(verbose: bool) -> None:
     type=click.Path(exists=True),
     help="Path to service account JSON.",
 )
+@click.option(
+    "--token-path",
+    envvar="IMAGES2SLIDES_TOKEN_PATH",
+    default=None,
+    help="Path for the cached OAuth token (default: user config directory).",
+)
 def build(
     presentation_id: str,
     layout: str,
@@ -120,6 +126,7 @@ def build(
     place_background: bool,
     client_secret: str | None,
     service_account: str | None,
+    token_path: str | None,
 ) -> None:
     """Build a slide from layout.json."""
     import uuid
@@ -149,7 +156,7 @@ def build(
     if service_account:
         service = get_slides_service_sa(service_account)
     elif client_secret:
-        service = get_slides_service_oauth(client_secret)
+        service = get_slides_service_oauth(client_secret, token_path)
     else:
         click.echo("Error: Must provide --client-secret or --service-account", err=True)
         sys.exit(EXIT_MISSING_CREDENTIALS)
@@ -324,6 +331,12 @@ def postprocess(layout: str, output: str) -> None:
     type=click.Path(exists=True),
     help="Path to service account JSON.",
 )
+@click.option(
+    "--token-path",
+    envvar="IMAGES2SLIDES_TOKEN_PATH",
+    default=None,
+    help="Path for the cached OAuth token (default: user config directory).",
+)
 def create(
     layouts: tuple[str, ...],
     title: str,
@@ -332,6 +345,7 @@ def create(
     place_background: bool,
     client_secret: str | None,
     service_account: str | None,
+    token_path: str | None,
 ) -> None:
     """Create a new presentation from multiple layout files.
 
@@ -384,7 +398,7 @@ def create(
     if service_account:
         service = get_slides_service_sa(service_account)
     elif client_secret:
-        service = get_slides_service_oauth(client_secret)
+        service = get_slides_service_oauth(client_secret, token_path)
     else:
         click.echo("Error: Must provide --client-secret or --service-account", err=True)
         sys.exit(EXIT_MISSING_CREDENTIALS)
@@ -551,6 +565,12 @@ def analyze(
     type=click.Path(exists=True),
     help="Path to service account JSON for Google Slides.",
 )
+@click.option(
+    "--token-path",
+    envvar="IMAGES2SLIDES_TOKEN_PATH",
+    default=None,
+    help="Path for the cached OAuth token (default: user config directory).",
+)
 def convert(
     images: tuple[str, ...],
     title: str,
@@ -561,6 +581,7 @@ def convert(
     gcs_bucket: str | None,
     client_secret: str | None,
     service_account: str | None,
+    token_path: str | None,
 ) -> None:
     """Convert infographic images to an editable Google Slides presentation.
 
@@ -688,7 +709,7 @@ def convert(
     if service_account:
         service = get_slides_service_sa(service_account)
     elif client_secret:
-        service = get_slides_service_oauth(client_secret)
+        service = get_slides_service_oauth(client_secret, token_path)
     else:
         click.echo("Error: Must provide --client-secret or --service-account", err=True)
         sys.exit(EXIT_MISSING_CREDENTIALS)
