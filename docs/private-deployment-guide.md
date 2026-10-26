@@ -49,7 +49,7 @@ images2slides 的输出端是 **Google Slides 在线 API**，输入端是 **VLM 
 
 - `--gcs-bucket` / `GCS_BUCKET`：承接裁剪图上传（`cli/__main__.py:536-541`）
 - 凭证复用 Google 侧的应用默认凭证（ADC）：服务账号方式下即同一个 key 文件，无需单独配置
-- **注意**：当前实现会上传后 `make_public()`（P0-2）。部署到生产前先修 P0-2 或至少为该 bucket 单独建一个"只放临时切片"的专用 bucket + 生命周期规则（1 天过期）兜底
+- **上传策略（P0-2 已修复）**：默认返回 1 小时有效的 V4 签名 URL，bucket 可保持私有；签名需服务账号（或 IAM 签名权限），OAuth 用户凭证会签名失败并明确报错。确需旧行为时设置 `IMAGES2SLIDES_ALLOW_PUBLIC_UPLOAD=1` 显式回退为公读对象
 
 ## 4. 配置项总表
 
@@ -91,12 +91,12 @@ docker run --rm \
   --save-layouts /data/layouts
 ```
 
-Docker 要点：密钥用只读挂载（`:ro`），绝不进镜像层；`token.json` 会落在容器 CWD（P0-3），容器部署建议等 P0-3 修复后用 `--token-path` 指到挂载卷，或在镜像里 `WORKDIR` 指向可写临时目录并把该目录声明为 volume。
+Docker 要点：密钥用只读挂载（`:ro`），绝不进镜像层；OAuth token 默认落在用户配置目录（P0-3 已修复），容器内可用 `--token-path` 或 `IMAGES2SLIDES_TOKEN_PATH` 指到挂载卷，避免随容器层丢失。
 
 ## 6. 安全加固清单（部署必查）
 
-- [ ] P0-2：确认图片上传策略——未修复前，专用 bucket + 对象生命周期 1 天 + 禁止放敏感原图
-- [ ] P0-3：token 不落共享目录；服务器一律用服务账号（无 token.json 产生）
+- [ ] P0-2（已修复）：默认签名 URL、bucket 保持私有；仅在有意识设置 `IMAGES2SLIDES_ALLOW_PUBLIC_UPLOAD=1` 时才产生公开对象
+- [ ] P0-3（已修复）：token 默认落用户配置目录且权限 0600，可用 `IMAGES2SLIDES_TOKEN_PATH`/`--token-path` 重定向；服务器仍建议一律用服务账号（不产生 token.json）
 - [ ] 服务账号 JSON key 权限 600，放入密钥管理系统或只读挂载
 - [ ] VLM API key 通过环境变量/密钥服务注入，不写进 `.env` 入库
 - [ ] GCS bucket 私有化审计：检查是否有历史 `make_public` 遗留的公开对象
